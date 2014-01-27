@@ -10,18 +10,16 @@ class Game(object):
 		from pytmx import tmxloader
 		tmxdata = tmxloader.load_pygame("../materials/map.tmx", pixelalpha=True)
 		
-		searchGraph = NodeGraph()
-		
 		for og in tmxdata.objectgroups:
-			for o in og:
-				if hasattr(o,'spawn'):
-					print o
-				if hasattr(o,'buildarea'):
-					print (o.x, o.y, o.width, o.height)
-				if hasattr(o,'walkable'):
-					searchGraph.addNodes((o.x, o.y, o.width, o.height))
-				if hasattr(o,'main'):
-					print o.main
+			if hasattr(og,'triggers'):
+				triggers = og		
+		
+		# create search graph for pathfinding
+		searchGraph = NodeGraph(triggers)
+		
+		searchGraph.createPotentialField()
+		
+		searchGraph.generatePath()
 		
 		# create map with tiles
 		areaMap = Map(tmxdata)
@@ -70,9 +68,28 @@ class Game(object):
 			pygame.display.flip()
 			
 class NodeGraph(object):
-	def __init__(self):
+	def __init__(self, triggers):
 		self.nodes = []
 		self.radius_of_nodes = 20
+		
+		# create nodes	
+		for trigger in triggers:
+			if hasattr(trigger,'walkable'):
+				self.addNodes((trigger.x, trigger.y, trigger.width, trigger.height))
+			#if hasattr(trigger,'poly'):
+				#print (trigger.x,trigger.y)
+				#print trigger.points
+		# mark start and end nodes
+		for trigger in triggers:
+			if hasattr(trigger,'spawn'):
+				for node in self.nodes:
+					if abs(node.pos_x - trigger.x) + abs(node.pos_y - trigger.y) < 3*self.radius_of_nodes:
+						node.startnode = True
+			if hasattr(trigger,'destination'):
+				for node in self.nodes:
+					if abs(node.pos_x - trigger.x) + abs(node.pos_y - trigger.y) < 3*self.radius_of_nodes:
+						node.endnode = True
+
 		
 	def addNodes(self,area):
 		# work only for rectangular areas
@@ -81,9 +98,8 @@ class NodeGraph(object):
 		area_width = area[2]
 		area_height = area[3]
 		
-		print area
-		
 		# problem: nodes are not equally distributed
+		# TODO: better distribution of nodes
 		i = j = self.radius_of_nodes
 		while i < area_width:
 			while j < area_height:
@@ -93,13 +109,28 @@ class NodeGraph(object):
 			j = self.radius_of_nodes
 			i += 2*self.radius_of_nodes
 			
-		print "number of nodes:", len(self.nodes)
-			
 		# connect nodes that are close to each other
 		for node1 in self.nodes:
 			for node2 in self.nodes:
 				node1.connect(node2)				
 		# after the graph has been created it can be saved and loaded -> doesn't have to be created at every start of the game
+	
+	def createPotentialField(self):
+		for i in range(0,500):
+			for node in self.nodes:
+				node.spreadPotential()
+				
+	def generatePath(self):
+		# find startnode
+		for node in self.nodes:
+			if node.startnode == True:
+				current = node
+				break
+		# find best neighbor of every node until destination is reached
+		while current.endnode == False:
+			current.pathnode = True
+			current = current.getMaxNeighbor()
+		
 				
 	def plotNodes(self,screen,camera):
 		for node in self.nodes:
@@ -113,9 +144,29 @@ class Node(object):
 		self.pos_y = pos_y
 		self.identifier = identifier
 		self.neighbors = []
-		self.traversable = True
 		
-		print "id of node:", self.identifier
+		self.traversable = True
+		self.startnode = False
+		self.endnode = False
+		
+		self.pathnode = False
+		
+		self.potential = 0		
+		#print "id of node:", self.identifier
+		
+	def spreadPotential(self):
+		if self.traversable == False:
+			# TODO: something meaningful
+			return
+		elif self.startnode == True:
+			self.potential = -10000
+		elif self.endnode == True:
+			self.potential = 10000
+		else:
+			sum_of_neighbors = 0
+			for n in self.neighbors:
+				sum_of_neighbors += n.potential
+			self.potential = sum_of_neighbors/len(self.neighbors)
 		
 	def connect(self,otherNode):
 		if (self != otherNode):		
@@ -127,11 +178,33 @@ class Node(object):
 						self.neighbors.append(otherNode)
 						# become neighbor of other node
 						otherNode.connect(self)
+						
+	def getMaxNeighbor(self):
+		maxnode = None
+		for node in self.neighbors:
+			if node.potential > self.potential:
+				if maxnode == None:
+					maxnode = node
+				else:
+					if node.potential > maxnode.potential:
+						maxnode = node
+		return maxnode
 					
 	def plot(self,screen,camera):
 		#print "node pos: ", (self.pos_x,self.pos_y)
 		#print "number of neighbors: ", len(self.neighbors)
-		pygame.draw.circle(screen, pygame.Color(255,255,0,10), (self.pos_x - camera.pos_x,self.pos_y-camera.pos_y), self.radius, 0)
+		if self.pathnode == True:
+			pygame.draw.circle(screen, pygame.Color(0,0,0,10), (self.pos_x - camera.pos_x,self.pos_y-camera.pos_y), self.radius, 0)
+			return
+		
+		if self.startnode == False and self.endnode == False:
+			colorgradient = int((self.potential+10000)*255/20000)
+			#print colorgradient
+			pygame.draw.circle(screen, pygame.Color(colorgradient,255 - colorgradient,255 - colorgradient,10), (self.pos_x - camera.pos_x,self.pos_y-camera.pos_y), self.radius, 0)
+		elif self.startnode == True:
+			pygame.draw.circle(screen, pygame.Color(0,0,255,10), (self.pos_x - camera.pos_x,self.pos_y-camera.pos_y), self.radius, 0)
+		elif self.endnode == True:
+			pygame.draw.circle(screen, pygame.Color(255,0,0,10), (self.pos_x - camera.pos_x,self.pos_y-camera.pos_y), self.radius, 0)
 		for neighbor in self.neighbors:
 			#print "neighbor pos: ", (neighbor.pos_x,neighbor.pos_y)
 			pygame.draw.line(screen, pygame.Color(0,0,0,255), (self.pos_x - camera.pos_x,self.pos_y - camera.pos_y),  (neighbor.pos_x - camera.pos_x,neighbor.pos_y - camera.pos_y), 1)
@@ -210,5 +283,5 @@ class Player(object):
 
 if __name__ == '__main__':
 		pygame.init()
-		screen = pygame.display.set_mode((600,400))
+		screen = pygame.display.set_mode((1280,768))
 		Game().main(screen)
