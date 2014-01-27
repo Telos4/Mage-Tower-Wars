@@ -1,31 +1,37 @@
 import pygame
+import pathfinding
 
 class Game(object):
 	def main(self,screen):
 		clock = pygame.time.Clock()
 		
-
-		
 		# loading materials	
 		from pytmx import tmxloader
 		tmxdata = tmxloader.load_pygame("../materials/map.tmx", pixelalpha=True)
 		
+		# get trigger layer
 		for og in tmxdata.objectgroups:
 			if hasattr(og,'triggers'):
 				triggers = og		
 		
 		# create search graph for pathfinding
-		searchGraph = NodeGraph(triggers)
+		searchGraph = pathfinding.NodeGraph(triggers)
 		
-		searchGraph.createPotentialField()
+		#searchGraph.createPotentialField()
 		
-		searchGraph.generatePath()
+		searchGraph.generateNewPaths()
+		
+		spawn_1 = searchGraph.start_nodes[0]
+		
+		goblin = Creep(1,spawn_1.pos_x,spawn_1.pos_y)
 		
 		# create map with tiles
 		areaMap = Map(tmxdata)
 		
 		# set up camera
 		camera = Camera(screen.get_size(),areaMap.getDimensions())
+		
+		direct = (0,0)
 
 		while True:
 			clock.tick(30)
@@ -48,14 +54,21 @@ class Game(object):
 			###############################################################################################
 			# Game logics
 			###############################################################################################
+			newDirect = searchGraph.getDirection(goblin.pos_x, goblin.pos_y)
+			if newDirect != None:
+				direct = newDirect
 			
+			#print direct
+			#print "creep at:", (goblin.pos_x, goblin.pos_y)
+			
+			goblin.move(direct)
 						
 			###############################################################################################
 			# Graphics
 			###############################################################################################
 			
 			# set background color
-			screen.fill((47,129,54))
+			screen.fill((0,0,0))
 			
 			# draw map to screen, using the settings of the camera
 			areaMap.drawMap(screen,camera)
@@ -63,151 +76,17 @@ class Game(object):
 			# plot nodes of search graph (for debugging purposes)
 			searchGraph.plotNodes(screen,camera)
 			
+			# draw all towers
+			
+			# draw all creatures
+			goblin.plot(screen,camera)
+			
+			# draw all special effects (arrows, missles, etc.)
+			
 			# background tileset
 			#---------------------------------------- background.drawMap(screen)
 			pygame.display.flip()
 			
-class NodeGraph(object):
-	def __init__(self, triggers):
-		self.nodes = []
-		self.radius_of_nodes = 20
-		
-		# create nodes	
-		for trigger in triggers:
-			if hasattr(trigger,'walkable'):
-				self.addNodes((trigger.x, trigger.y, trigger.width, trigger.height))
-			#if hasattr(trigger,'poly'):
-				#print (trigger.x,trigger.y)
-				#print trigger.points
-		# mark start and end nodes
-		for trigger in triggers:
-			if hasattr(trigger,'spawn'):
-				for node in self.nodes:
-					if abs(node.pos_x - trigger.x) + abs(node.pos_y - trigger.y) < 3*self.radius_of_nodes:
-						node.startnode = True
-			if hasattr(trigger,'destination'):
-				for node in self.nodes:
-					if abs(node.pos_x - trigger.x) + abs(node.pos_y - trigger.y) < 3*self.radius_of_nodes:
-						node.endnode = True
-
-		
-	def addNodes(self,area):
-		# work only for rectangular areas
-		area_x = area[0]
-		area_y = area[1]
-		area_width = area[2]
-		area_height = area[3]
-		
-		# problem: nodes are not equally distributed
-		# TODO: better distribution of nodes
-		i = j = self.radius_of_nodes
-		while i < area_width:
-			while j < area_height:
-				newNode = Node(area_x + i,area_y + j,self.radius_of_nodes,len(self.nodes))
-				self.nodes.append(newNode)
-				j += 2*self.radius_of_nodes
-			j = self.radius_of_nodes
-			i += 2*self.radius_of_nodes
-			
-		# connect nodes that are close to each other
-		for node1 in self.nodes:
-			for node2 in self.nodes:
-				node1.connect(node2)				
-		# after the graph has been created it can be saved and loaded -> doesn't have to be created at every start of the game
-	
-	def createPotentialField(self):
-		for i in range(0,500):
-			for node in self.nodes:
-				node.spreadPotential()
-				
-	def generatePath(self):
-		# find startnode
-		for node in self.nodes:
-			if node.startnode == True:
-				current = node
-				break
-		# find best neighbor of every node until destination is reached
-		while current.endnode == False:
-			current.pathnode = True
-			current = current.getMaxNeighbor()
-		
-				
-	def plotNodes(self,screen,camera):
-		for node in self.nodes:
-			node.plot(screen,camera)
-			
-		
-class Node(object):
-	def __init__(self,pos_x, pos_y, radius, identifier):
-		self.radius = radius
-		self.pos_x = pos_x
-		self.pos_y = pos_y
-		self.identifier = identifier
-		self.neighbors = []
-		
-		self.traversable = True
-		self.startnode = False
-		self.endnode = False
-		
-		self.pathnode = False
-		
-		self.potential = 0		
-		#print "id of node:", self.identifier
-		
-	def spreadPotential(self):
-		if self.traversable == False:
-			# TODO: something meaningful
-			return
-		elif self.startnode == True:
-			self.potential = -10000
-		elif self.endnode == True:
-			self.potential = 10000
-		else:
-			sum_of_neighbors = 0
-			for n in self.neighbors:
-				sum_of_neighbors += n.potential
-			self.potential = sum_of_neighbors/len(self.neighbors)
-		
-	def connect(self,otherNode):
-		if (self != otherNode):		
-			# if otherNode is not already neighbor
-			if not (otherNode in self.neighbors):
-				# check if node is close enough for connection
-				if (self.pos_x - otherNode.pos_x)*(self.pos_x - otherNode.pos_x) + (self.pos_y - otherNode.pos_y)*(self.pos_y - otherNode.pos_y) <= 9 * self.radius*self.radius:
-						# register otherNode as neighbor
-						self.neighbors.append(otherNode)
-						# become neighbor of other node
-						otherNode.connect(self)
-						
-	def getMaxNeighbor(self):
-		maxnode = None
-		for node in self.neighbors:
-			if node.potential > self.potential:
-				if maxnode == None:
-					maxnode = node
-				else:
-					if node.potential > maxnode.potential:
-						maxnode = node
-		return maxnode
-					
-	def plot(self,screen,camera):
-		#print "node pos: ", (self.pos_x,self.pos_y)
-		#print "number of neighbors: ", len(self.neighbors)
-		if self.pathnode == True:
-			pygame.draw.circle(screen, pygame.Color(0,0,0,10), (self.pos_x - camera.pos_x,self.pos_y-camera.pos_y), self.radius, 0)
-			return
-		
-		if self.startnode == False and self.endnode == False:
-			colorgradient = int((self.potential+10000)*255/20000)
-			#print colorgradient
-			pygame.draw.circle(screen, pygame.Color(colorgradient,255 - colorgradient,255 - colorgradient,10), (self.pos_x - camera.pos_x,self.pos_y-camera.pos_y), self.radius, 0)
-		elif self.startnode == True:
-			pygame.draw.circle(screen, pygame.Color(0,0,255,10), (self.pos_x - camera.pos_x,self.pos_y-camera.pos_y), self.radius, 0)
-		elif self.endnode == True:
-			pygame.draw.circle(screen, pygame.Color(255,0,0,10), (self.pos_x - camera.pos_x,self.pos_y-camera.pos_y), self.radius, 0)
-		for neighbor in self.neighbors:
-			#print "neighbor pos: ", (neighbor.pos_x,neighbor.pos_y)
-			pygame.draw.line(screen, pygame.Color(0,0,0,255), (self.pos_x - camera.pos_x,self.pos_y - camera.pos_y),  (neighbor.pos_x - camera.pos_x,neighbor.pos_y - camera.pos_y), 1)
 			
 class Map(object):
 	def __init__(self,tmxdata):
@@ -265,16 +144,22 @@ class Camera(object):
 					self.pos_y = self.map_height - self.display_height
 					
 class Creep(object):
-	def __init__(self,unit_type):
+	def __init__(self,unit_type,pos_x,pos_y):
 		self.type = unit_type
 		self.hp = 100
-		self.speed = 10
-		self.pos_x = 10
-		self.pos_y = 10
+		self.speed = 5
+		self.pos_x = pos_x
+		self.pos_y = pos_y
+		self.direction = (0,0)
 		
-	def move(self,x,y):
-		self.pos_x = x
-		self.pos_y = y
+	def move(self, direction):
+		self.direction = direction
+		self.pos_x += direction[0] * self.speed
+		self.pos_y += direction[1] * self.speed
+		
+	def plot(self,screen,camera):
+		pygame.draw.circle(screen, pygame.Color(255,255,255,10), (int(self.pos_x - camera.pos_x),int(self.pos_y-camera.pos_y)), 5, 0)
+		pygame.draw.line(screen, pygame.Color(0,255,0,255), (int(self.pos_x - camera.pos_x),int(self.pos_y - camera.pos_y)),  (int(self.pos_x + self.direction[0]*100 - camera.pos_x),int(self.pos_y + self.direction[1]*100 - camera.pos_y)), 1)
 
 class Player(object):	
 	def __init__(self):
@@ -283,5 +168,5 @@ class Player(object):
 
 if __name__ == '__main__':
 		pygame.init()
-		screen = pygame.display.set_mode((1280,768))
+		screen = pygame.display.set_mode((800,600))
 		Game().main(screen)
