@@ -4,7 +4,7 @@ import math
 class NodeGraph(object):
     def __init__(self, triggers):
         self.nodes = []
-        self.radius_of_nodes = 40
+        self.radius_of_nodes = 20
         
         self.start_nodes = []
         self.end_nodes = []
@@ -51,14 +51,11 @@ class NodeGraph(object):
             y = pos_y - node.pos_y
             r = self.radius_of_nodes
             if x*x + y*y <= r*r/16:
-                #print "near node: ", node.pos_x, node.pos_y
                 nearestNode = node
         if nearestNode != None:
-            #print "pointing to ", nearestNode.direction
             # go in the direction the node is pointing            
             return nearestNode.direction
         else:
-            #print "no node nearby"
             # keep going the old direction
             return None
         
@@ -98,7 +95,7 @@ class NodeGraph(object):
     def generateNewPaths(self):
         self.path = []
         
-        # find startnode
+        # find startnode 1
         current = self.start_nodes[0]
         
         # find best neighbor of every node until destination is reached
@@ -107,7 +104,20 @@ class NodeGraph(object):
             current.pathnode = True
             current = current.getMaxNeighbor()
             #if current.endnode = True:
-                
+        # add last node to path
+        self.path.append(current)
+        
+        # find startnode 2
+        current = self.start_nodes[1]
+        
+        # find best neighbor of every node until destination is reached
+        while current.endnode == False:
+            self.path.append(current)
+            current.pathnode = True
+            current = current.getMaxNeighbor()
+            #if current.endnode = True:
+        # add last node to path
+        self.path.append(current)        
         
                 
     def plotNodes(self,screen,camera):
@@ -168,6 +178,10 @@ class Node(object):
         return maxnode
     
     def calcDirection(self):
+        if self.endnode:
+            self.direction = (0.0,0.0)
+            return
+        
         neighbor = self.getMaxNeighbor()
         if neighbor != None:
             x = neighbor.pos_x - self.pos_x

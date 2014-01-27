@@ -22,16 +22,15 @@ class Game(object):
 		searchGraph.generateNewPaths()
 		
 		spawn_1 = searchGraph.start_nodes[0]
+		spawn_2 = searchGraph.start_nodes[1]
 		
-		goblin = Creep(1,spawn_1.pos_x,spawn_1.pos_y)
+		creeps = []
 		
 		# create map with tiles
 		areaMap = Map(tmxdata)
 		
 		# set up camera
 		camera = Camera(screen.get_size(),areaMap.getDimensions())
-		
-		direct = (0,0)
 
 		while True:
 			clock.tick(30)
@@ -43,6 +42,10 @@ class Game(object):
 
 				if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
 					return
+				
+			if pygame.key.get_pressed()[pygame.K_c]:
+				creeps.append(Creep(1,spawn_1.pos_x,spawn_1.pos_y))
+				creeps.append(Creep(1,spawn_2.pos_x,spawn_2.pos_y))
 			
 			mousePosition = pygame.mouse.get_pos()
 			
@@ -54,14 +57,12 @@ class Game(object):
 			###############################################################################################
 			# Game logics
 			###############################################################################################
-			newDirect = searchGraph.getDirection(goblin.pos_x, goblin.pos_y)
-			if newDirect != None:
-				direct = newDirect
+			for creep in creeps:
+				creep.move(searchGraph.getDirection(creep.pos_x, creep.pos_y))
+				
 			
 			#print direct
 			#print "creep at:", (goblin.pos_x, goblin.pos_y)
-			
-			goblin.move(direct)
 						
 			###############################################################################################
 			# Graphics
@@ -78,8 +79,9 @@ class Game(object):
 			
 			# draw all towers
 			
-			# draw all creatures
-			goblin.plot(screen,camera)
+			# draw all creatures			
+			for creep in creeps:
+				creep.plot(screen,camera)
 			
 			# draw all special effects (arrows, missles, etc.)
 			
@@ -147,18 +149,21 @@ class Creep(object):
 	def __init__(self,unit_type,pos_x,pos_y):
 		self.type = unit_type
 		self.hp = 100
-		self.speed = 5
+		self.speed = 10
 		self.pos_x = pos_x
 		self.pos_y = pos_y
 		self.direction = (0,0)
 		
 	def move(self, direction):
-		self.direction = direction
-		self.pos_x += direction[0] * self.speed
-		self.pos_y += direction[1] * self.speed
+		if direction != None:
+			self.direction = direction
+		self.pos_x += self.direction[0] * self.speed
+		self.pos_y += self.direction[1] * self.speed
 		
 	def plot(self,screen,camera):
 		pygame.draw.circle(screen, pygame.Color(255,255,255,10), (int(self.pos_x - camera.pos_x),int(self.pos_y-camera.pos_y)), 5, 0)
+		
+		# plot direction the character is facing in (for debugging purposes)
 		pygame.draw.line(screen, pygame.Color(0,255,0,255), (int(self.pos_x - camera.pos_x),int(self.pos_y - camera.pos_y)),  (int(self.pos_x + self.direction[0]*100 - camera.pos_x),int(self.pos_y + self.direction[1]*100 - camera.pos_y)), 1)
 
 class Player(object):	
@@ -168,5 +173,5 @@ class Player(object):
 
 if __name__ == '__main__':
 		pygame.init()
-		screen = pygame.display.set_mode((800,600))
+		screen = pygame.display.set_mode((768,1280))
 		Game().main(screen)
