@@ -72,7 +72,7 @@ class Game(object):
 class NodeGraph(object):
 	def __init__(self):
 		self.nodes = []
-		self.radius_of_nodes = 70
+		self.radius_of_nodes = 20
 		
 	def addNodes(self,area):
 		# work only for rectangular areas
@@ -103,7 +103,7 @@ class NodeGraph(object):
 				
 	def plotNodes(self,screen,camera):
 		for node in self.nodes:
-			pygame.draw.circle(screen, pygame.Color(255,255,0,10), (node.pos_x - camera.pos_x,node.pos_y-camera.pos_y), node.radius, 0)
+			node.plot(screen,camera)
 			
 		
 class Node(object):
@@ -118,13 +118,23 @@ class Node(object):
 		print "id of node:", self.identifier
 		
 	def connect(self,otherNode):
-		if not (otherNode in self.neighbors):
-			# check if node is close enough for connection
-			if (self.pos_x - otherNode.pos_x)*(self.pos_x - otherNode.pos_x) + (self.pos_y - otherNode.pos_y)*(self.pos_y - otherNode.pos_y) <= 9 * self.radius:
-					# register otherNode as neighbor
-					self.neighbors.append(otherNode)
-					# become neighbor of other node
-					otherNode.connect(self)
+		if (self != otherNode):		
+			# if otherNode is not already neighbor
+			if not (otherNode in self.neighbors):
+				# check if node is close enough for connection
+				if (self.pos_x - otherNode.pos_x)*(self.pos_x - otherNode.pos_x) + (self.pos_y - otherNode.pos_y)*(self.pos_y - otherNode.pos_y) <= 9 * self.radius*self.radius:
+						# register otherNode as neighbor
+						self.neighbors.append(otherNode)
+						# become neighbor of other node
+						otherNode.connect(self)
+					
+	def plot(self,screen,camera):
+		#print "node pos: ", (self.pos_x,self.pos_y)
+		#print "number of neighbors: ", len(self.neighbors)
+		pygame.draw.circle(screen, pygame.Color(255,255,0,10), (self.pos_x - camera.pos_x,self.pos_y-camera.pos_y), self.radius, 0)
+		for neighbor in self.neighbors:
+			#print "neighbor pos: ", (neighbor.pos_x,neighbor.pos_y)
+			pygame.draw.line(screen, pygame.Color(0,0,0,255), (self.pos_x - camera.pos_x,self.pos_y - camera.pos_y),  (neighbor.pos_x - camera.pos_x,neighbor.pos_y - camera.pos_y), 1)
 			
 class Map(object):
 	def __init__(self,tmxdata):
