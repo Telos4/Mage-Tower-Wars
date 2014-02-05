@@ -1,5 +1,7 @@
 import pygame
+import numpy
 import pathfinding
+import random
 
 class Game(object):
 	def main(self,screen):
@@ -12,17 +14,14 @@ class Game(object):
 		# get trigger layer
 		for og in tmxdata.objectgroups:
 			if hasattr(og,'triggers'):
-				triggers = og		
+				triggers = og
+		
 		
 		# create search graph for pathfinding
 		searchGraph = pathfinding.NodeGraph(triggers)
 		
-		#searchGraph.createPotentialField()
-		
-		searchGraph.generateNewPaths()
-		
-		spawn_1 = searchGraph.start_nodes[0]
-		spawn_2 = searchGraph.start_nodes[1]
+		#spawn_1 = searchGraph.start_nodes[0]
+		#spawn_2 = searchGraph.start_nodes[1]
 		
 		creeps = []
 		
@@ -31,9 +30,14 @@ class Game(object):
 		
 		# set up camera
 		camera = Camera(screen.get_size(),areaMap.getDimensions())
-
+		
+		clock.tick()
 		while True:
-			clock.tick(30)
+			dt = clock.tick()/1000.0	# calculate time in seconds since last frame	
+			
+			#print "fps:", clock.get_fps()
+			
+			mousePosition = pygame.mouse.get_pos()
 
 			# Event handling
 			for event in pygame.event.get():
@@ -43,11 +47,18 @@ class Game(object):
 				if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
 					return
 				
-			if pygame.key.get_pressed()[pygame.K_c]:
-				creeps.append(Creep(1,spawn_1.pos_x,spawn_1.pos_y))
-				creeps.append(Creep(1,spawn_2.pos_x,spawn_2.pos_y))
+				if event.type == pygame.MOUSEBUTTONDOWN:
+					button_states = pygame.mouse.get_pressed()
+					if button_states[0]:
+						creeps.append(Creep(1,(mousePosition[0]+camera.pos[0],mousePosition[1]+camera.pos[1])))
+					elif button_states[2]:
+						searchGraph.makeImpassable((mousePosition[0]+camera.pos[0],mousePosition[1]+camera.pos[1]))
+				
+			#if pygame.key.get_pressed()[pygame.K_c]:
+				#creeps.append(Creep(1,spawn_1.pos_x,spawn_1.pos_y))
+				#creeps.append(Creep(1,spawn_2.pos_x,spawn_2.pos_y))
 			
-			mousePosition = pygame.mouse.get_pos()
+			
 			
 			# mouse scrolling	
 			camera.scroll(mousePosition)
@@ -57,8 +68,23 @@ class Game(object):
 			###############################################################################################
 			# Game logics
 			###############################################################################################
+			
+			# move all creeps according to their tiles optimal directions
 			for creep in creeps:
-				creep.move(searchGraph.getDirection(creep.pos_x, creep.pos_y))
+				d = searchGraph.getDirection(creep.pos)
+				creep.move(d,dt)
+				
+			# check for collisions
+			for creep in creeps:
+				v = searchGraph.handleCollision(creep.pos,creep.size)				
+				if v != None:
+					creep.shift(v)
+					
+			# delete nodes that reached endnode
+			for creep in creeps:
+				if searchGraph.atEndNode(creep.pos):
+					creeps.remove(creep)
+					#del creep
 				
 			
 			#print direct
@@ -106,15 +132,14 @@ class Map(object):
 			for y in xrange(0, self.tmxdata.height):
 				for x in xrange(0, self.tmxdata.width):
 					tile = gt(x, y, l)
-					if tile: screen.blit(tile, (x*tw - camera.pos_x, y*th - camera.pos_y))
+					if tile: screen.blit(tile, (x*tw - camera.pos[0], y*th - camera.pos[1]))
 			
 class Camera(object):
 	def __init__(self,display_dimensions,map_dimensions):
 		self.display_width = display_dimensions[0]
 		self.display_height = display_dimensions[1]
 		
-		self.pos_x = 0
-		self.pos_y = 0
+		self.pos = numpy.array((0,0))
 		
 		self.margin = 25
 		self.scrollspeed = 50
@@ -124,54 +149,64 @@ class Camera(object):
 				
 	def scroll(self,mousePosition):
 			if mousePosition[0] < self.margin:
-				if self.pos_x - self.scrollspeed >= 0:
-					self.pos_x -= self.scrollspeed
+				if self.pos[0] - self.scrollspeed >= 0:
+					self.pos[0] -= self.scrollspeed
 				else:
-					self.pos_x = 0
+					self.pos[0] = 0
 			elif mousePosition[0] > self.display_width - self.margin:
-				if self.pos_x + self.display_width + self.scrollspeed <= self.map_width:
-					self.pos_x += self.scrollspeed
+				if self.pos[0] + self.display_width + self.scrollspeed <= self.map_width:
+					self.pos[0] += self.scrollspeed
 				else:
-					self.pos_x = self.map_width - self.display_width
+					self.pos[0] = self.map_width - self.display_width
 				
 			if mousePosition[1] < self.margin:
-				if self.pos_y - self.scrollspeed >= 0:
-					self.pos_y -= self.scrollspeed
+				if self.pos[1] - self.scrollspeed >= 0:
+					self.pos[1] -= self.scrollspeed
 				else:
-					self.pos_y = 0
+					self.pos[1] = 0
 			elif mousePosition[1] > self.display_height - self.margin:
-				if self.pos_y + self.display_height + self.scrollspeed <= self.map_height:
-					self.pos_y += self.scrollspeed
+				if self.pos[1] + self.display_height + self.scrollspeed <= self.map_height:
+					self.pos[1] += self.scrollspeed
 				else:
-					self.pos_y = self.map_height - self.display_height
+					self.pos[1] = self.map_height - self.display_height
 					
 class Creep(object):
-	def __init__(self,unit_type,pos_x,pos_y):
+	def __init__(self,unit_type,pos):
 		self.type = unit_type
 		self.hp = 100
-		self.speed = 10
-		self.pos_x = pos_x
-		self.pos_y = pos_y
-		self.direction = (0,0)
+		self.speed = 100
+		self.size = 5
 		
-	def move(self, direction):
+		self.pos = numpy.array(pos)		# position of the creep on the map
+		self.vel = numpy.array([0,0])	# velocity of the creep in pixels per second
+	
+	def move(self,direction,dt):
 		if direction != None:
-			self.direction = direction
-		self.pos_x += self.direction[0] * self.speed
-		self.pos_y += self.direction[1] * self.speed
+			self.vel = numpy.array(direction) * self.speed	# update velocity of creep
+		self.pos += dt * self.vel	# update position
+			
+				
+	def shift(self,v):		
+		self.pos += v
 		
 	def plot(self,screen,camera):
-		pygame.draw.circle(screen, pygame.Color(255,255,255,10), (int(self.pos_x - camera.pos_x),int(self.pos_y-camera.pos_y)), 5, 0)
+		#print "pos:", self.pos
+		#print "cam:", camera.pos
+		#print (int(self.pos[0] - camera.pos[0]),int(self.pos[1]-camera.pos[1]))
+		pygame.draw.circle(screen, pygame.Color(255,0,0,0), (int(self.pos[0] - camera.pos[0]),int(self.pos[1]-camera.pos[1])), self.size, 0)
 		
 		# plot direction the character is facing in (for debugging purposes)
-		pygame.draw.line(screen, pygame.Color(0,255,0,255), (int(self.pos_x - camera.pos_x),int(self.pos_y - camera.pos_y)),  (int(self.pos_x + self.direction[0]*100 - camera.pos_x),int(self.pos_y + self.direction[1]*100 - camera.pos_y)), 1)
+		pygame.draw.line(screen, pygame.Color(0,255,0,255), (int(self.pos[0] - camera.pos[0]),int(self.pos[1] - camera.pos[1])),  (int(self.pos[0] + self.vel[0] - camera.pos[0]),int(self.pos[1] + self.vel[1] - camera.pos[1])), 1)
 
 class Player(object):	
 	def __init__(self):
 		self.human = True
+		
+		self.units = []
+		self.towers = []
 
 
 if __name__ == '__main__':
 		pygame.init()
-		screen = pygame.display.set_mode((768,1280))
+		screen = pygame.display.set_mode((1280,768))
 		Game().main(screen)
